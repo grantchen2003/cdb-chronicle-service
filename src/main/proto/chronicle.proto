@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package cdb.chronicle;
+
+option java_multiple_files = true;
+option java_package = "io.github.grantchen2003.cdb.chronicle.grpc";
+
+service ChronicleService {
+  rpc AppendTx (AppendTxRequest) returns (AppendTxResponse);
+}
+
+message AppendTxRequest {
+  string cdb_id = 1;
+  int64 seq_num = 2;
+  string tx = 3;
+}
+
+message AppendTxResponse {
+  bool success = 1;
+  int64 committed_seq_num = 2;
+  string error_message = 3;
+}
