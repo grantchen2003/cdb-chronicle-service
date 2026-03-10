@@ -2,7 +2,6 @@ package io.github.grantchen2003.cdb.chronicle;
 
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxRequest;
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxResponse;
-import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -186,36 +185,5 @@ class ChronicleServiceImplTest {
         AppendTxResponse successResponse = successStub.getResponse();
         Assertions.assertTrue(successResponse.getSuccess(), "Should succeed now that Kafka is up");
         Assertions.assertEquals(1L, successResponse.getCommittedSeqNum(), "SN 1 should now be committed");
-    }
-
-    /**
-     * Simple Stub for capturing gRPC responses
-     */
-    static class AppendTxResponseStub implements StreamObserver<AppendTxResponse> {
-        private AppendTxResponse response;
-        private final CountDownLatch latch;
-
-        public AppendTxResponseStub(CountDownLatch latch) {
-            this.latch = latch;
-        }
-
-        @Override
-        public void onNext(AppendTxResponse value) {
-            this.response = value;
-        }
-
-        @Override
-        public void onError(Throwable t) {
-            latch.countDown();
-        }
-
-        @Override
-        public void onCompleted() {
-            latch.countDown();
-        }
-
-        public AppendTxResponse getResponse() {
-            return response;
-        }
     }
 }
