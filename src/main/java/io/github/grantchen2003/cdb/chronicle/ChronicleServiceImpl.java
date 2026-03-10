@@ -41,8 +41,8 @@ public class ChronicleServiceImpl extends ChronicleServiceGrpc.ChronicleServiceI
 
             } else {
                 responseBuilder.setSuccess(false)
-                        .setCommittedSeqNum(-1)
-                        .setErrorMessage("Retryable error: Invalid sequence number. Current sequence number is " + currentSn);
+                        .setCommittedSeqNum(currentSn)
+                        .setErrorMessage("Retryable error");
             }
         } finally {
             lock.unlock();

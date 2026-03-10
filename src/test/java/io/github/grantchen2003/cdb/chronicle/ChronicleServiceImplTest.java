@@ -90,8 +90,8 @@ class ChronicleServiceImplTest {
             Assertions.assertEquals(numConcurrentRequests - 1, failureResponses.size());
             for (final AppendTxResponse failure : failureResponses) {
                 Assertions.assertFalse(failure.getSuccess(), "Field 'success' must be false");
-                Assertions.assertEquals(-1, failure.getCommittedSeqNum(), "Failure committedSeqNum should be -1");
-                Assertions.assertEquals("Retryable error: Invalid sequence number. Current sequence number is " + targetSn, failure.getErrorMessage());
+                Assertions.assertEquals(targetSn, failure.getCommittedSeqNum(), "Failure committedSeqNum should be -1");
+                Assertions.assertEquals("Retryable error", failure.getErrorMessage());
             }
         }
     }
