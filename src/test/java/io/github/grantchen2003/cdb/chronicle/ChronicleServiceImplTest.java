@@ -185,7 +185,7 @@ class ChronicleServiceImplTest {
         final AppendTxResponseStub successStub = new AppendTxResponseStub(new CountDownLatch(1));
         service.appendTx(successReq, successStub);
 
-        AppendTxResponse successResponse = successStub.getResponse();
+        final AppendTxResponse successResponse = successStub.getResponse();
         Assertions.assertTrue(successResponse.getSuccess(), "Should succeed now that Kafka is up");
         Assertions.assertEquals(1L, successResponse.getCommittedSeqNum(), "SN 1 should now be committed");
     }
