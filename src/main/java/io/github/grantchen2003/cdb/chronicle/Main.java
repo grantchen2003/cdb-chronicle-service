@@ -8,8 +8,8 @@ import java.util.Map;
 
 public class Main {
     public static void main(String[] args) throws InterruptedException, IOException {
-        final int port = 9090;
-        final String kafkaBootstrapServers = "localhost:9092";
+        final int port = Integer.parseInt(EnvConfig.get("CHRONICLE_SERVICE_PORT"));
+        final String kafkaBootstrapServers = EnvConfig.get("KAFKA_BOOTSTRAP_SERVERS");
 
         final ChronicleSnBootstrapper bootstrapper = new ChronicleSnBootstrapper(kafkaBootstrapServers);
         final Map<String, Long> cdbIdToSn = bootstrapper.loadCdbIdSeqNums();
