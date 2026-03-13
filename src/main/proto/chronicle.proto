@@ -16,7 +16,5 @@ message AppendTxRequest {
 }
 
 message AppendTxResponse {
-  bool success = 1;
-  int64 committed_seq_num = 2;
-  string error_message = 3;
+  int64 committed_seq_num = 1;
 }

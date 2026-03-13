@@ -3,6 +3,7 @@ package io.github.grantchen2003.cdb.chronicle;
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxRequest;
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxResponse;
 import io.github.grantchen2003.cdb.chronicle.grpc.ChronicleServiceGrpc;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 
 import java.util.Map;
@@ -31,8 +32,6 @@ public class ChronicleServiceImpl extends ChronicleServiceGrpc.ChronicleServiceI
         final long incomingSn = request.getSeqNum();
         final String tx = request.getTx();
 
-        final AppendTxResponse.Builder responseBuilder = AppendTxResponse.newBuilder();
-
         final ReentrantLock lock = lockStripes[Math.floorMod(cdbId.hashCode(), STRIPE_COUNT)];
         lock.lock();
 
@@ -43,23 +42,22 @@ public class ChronicleServiceImpl extends ChronicleServiceGrpc.ChronicleServiceI
                 try {
                     chronicleLogProducer.sendSync(cdbId, incomingSn, tx);
                     cdbIdToSn.put(cdbId, incomingSn);
-                    responseBuilder.setSuccess(true)
-                            .setCommittedSeqNum(incomingSn);
+                    responseObserver.onNext(AppendTxResponse.newBuilder()
+                            .setCommittedSeqNum(incomingSn)
+                            .build());
+                    responseObserver.onCompleted();
                 } catch (ExecutionException | InterruptedException | TimeoutException e) {
-                    responseBuilder.setSuccess(false)
-                            .setCommittedSeqNum(currentSn)
-                            .setErrorMessage("Persistence failure");
+                    responseObserver.onError(Status.INTERNAL
+                            .withDescription("Persistence failure")
+                            .asRuntimeException());
                 }
             } else {
-                responseBuilder.setSuccess(false)
-                        .setCommittedSeqNum(currentSn)
-                        .setErrorMessage("Retryable error");
+                responseObserver.onError(Status.ABORTED
+                        .withDescription("Sequence number mismatch; expected " + (currentSn + 1) + ", got " + incomingSn)
+                        .asRuntimeException());
             }
         } finally {
             lock.unlock();
         }
-
-        responseObserver.onNext(responseBuilder.build());
-        responseObserver.onCompleted();
     }
 }

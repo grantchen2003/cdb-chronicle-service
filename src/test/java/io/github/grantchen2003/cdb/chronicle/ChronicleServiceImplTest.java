@@ -2,6 +2,7 @@ package io.github.grantchen2003.cdb.chronicle;
 
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxRequest;
 import io.github.grantchen2003.cdb.chronicle.grpc.AppendTxResponse;
+import io.grpc.Status;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +55,7 @@ class ChronicleServiceImplTest {
             final List<AppendTxResponseStub> stubs = new ArrayList<>();
 
             for (int j = 0; j < numConcurrentRequests; j++) {
-                AppendTxResponseStub stub = new AppendTxResponseStub(finishGate);
+                final AppendTxResponseStub stub = new AppendTxResponseStub(finishGate);
                 stubs.add(stub);
 
                 executor.submit(() -> {
@@ -73,29 +74,21 @@ class ChronicleServiceImplTest {
                 Assertions.fail("High contention test timed out at iteration " + i);
             }
 
-            final List<AppendTxResponse> allResponses = stubs.stream()
-                    .map(AppendTxResponseStub::getResponse)
+            final List<AppendTxResponseStub> successStubs = stubs.stream()
+                    .filter(AppendTxResponseStub::isSuccess)
                     .toList();
 
-            final List<AppendTxResponse> successResponses = allResponses.stream()
-                    .filter(AppendTxResponse::getSuccess)
+            final List<AppendTxResponseStub> failureStubs = stubs.stream()
+                    .filter(s -> !s.isSuccess())
                     .toList();
 
-            final List<AppendTxResponse> failureResponses = allResponses.stream()
-                    .filter(r -> !r.getSuccess())
-                    .toList();
-
-            Assertions.assertEquals(1, successResponses.size(), "Exactly one request should succeed for " + cdbId);
-            final AppendTxResponse success = successResponses.getFirst();
-            Assertions.assertTrue(success.getSuccess(), "Field 'success' must be true");
+            Assertions.assertEquals(1, successStubs.size(), "Exactly one request should succeed for " + cdbId);
+            final AppendTxResponse success = successStubs.getFirst().getResponse();
             Assertions.assertEquals(targetSn, success.getCommittedSeqNum(), "CommittedSeqNum should match targetSn");
-            Assertions.assertTrue(success.getErrorMessage().isEmpty(), "Error message should be empty on success");
 
-            Assertions.assertEquals(numConcurrentRequests - 1, failureResponses.size());
-            for (final AppendTxResponse failure : failureResponses) {
-                Assertions.assertFalse(failure.getSuccess(), "Field 'success' must be false");
-                Assertions.assertEquals(targetSn, failure.getCommittedSeqNum(), "Failure committedSeqNum should be " + targetSn);
-                Assertions.assertEquals("Retryable error", failure.getErrorMessage());
+            Assertions.assertEquals(numConcurrentRequests - 1, failureStubs.size());
+            for (final AppendTxResponseStub failureStub : failureStubs) {
+                Assertions.assertEquals(Status.ABORTED.getCode(), failureStub.getError().getStatus().getCode());
             }
         }
     }
@@ -141,15 +134,11 @@ class ChronicleServiceImplTest {
             Assertions.fail("Different ID test timed out");
         }
 
-        final AppendTxResponse resp1 = stub1.getResponse();
-        Assertions.assertTrue(resp1.getSuccess(),"cdb1 should succeed independently of cdb2");
-        Assertions.assertEquals(1L, resp1.getCommittedSeqNum(),"CommittedSeqNum for cdb1 should match the requested SN");
-        Assertions.assertTrue(resp1.getErrorMessage().isEmpty(),"Error message for cdb1 should be empty on success, but was: " + resp1.getErrorMessage());
+        Assertions.assertTrue(stub1.isSuccess(), "cdb1 should succeed independently of cdb2");
+        Assertions.assertEquals(1L, stub1.getResponse().getCommittedSeqNum(), "CommittedSeqNum for cdb1 should match the requested SN");
 
-        final AppendTxResponse resp2 = stub2.getResponse();
-        Assertions.assertTrue(resp2.getSuccess(),"cdb2 should succeed independently of cdb1");
-        Assertions.assertEquals(1L, resp2.getCommittedSeqNum(),"CommittedSeqNum for cdb2 should match the requested SN");
-        Assertions.assertTrue(resp2.getErrorMessage().isEmpty(),"Error message for cdb2 should be empty on success, but was: " + resp2.getErrorMessage());
+        Assertions.assertTrue(stub2.isSuccess(), "cdb2 should succeed independently of cdb1");
+        Assertions.assertEquals(1L, stub2.getResponse().getCommittedSeqNum(), "CommittedSeqNum for cdb2 should match the requested SN");
     }
 
     @Test
@@ -167,10 +156,8 @@ class ChronicleServiceImplTest {
         final AppendTxResponseStub failStub = new AppendTxResponseStub(new CountDownLatch(1));
         service.appendTx(failReq, failStub);
 
-        final AppendTxResponse failResponse = failStub.getResponse();
-        Assertions.assertFalse(failResponse.getSuccess(), "Should fail when producer fails");
-        Assertions.assertEquals("Persistence failure", failResponse.getErrorMessage());
-        Assertions.assertEquals(0L, failResponse.getCommittedSeqNum(), "Committed SN should still be 0");
+        Assertions.assertFalse(failStub.isSuccess(), "Should fail when producer fails");
+        Assertions.assertEquals(Status.INTERNAL.getCode(), failStub.getError().getStatus().getCode());
 
         logProducer.setShouldFail(false);
 
@@ -183,8 +170,7 @@ class ChronicleServiceImplTest {
         final AppendTxResponseStub successStub = new AppendTxResponseStub(new CountDownLatch(1));
         service.appendTx(successReq, successStub);
 
-        final AppendTxResponse successResponse = successStub.getResponse();
-        Assertions.assertTrue(successResponse.getSuccess(), "Should succeed now that Kafka is up");
-        Assertions.assertEquals(1L, successResponse.getCommittedSeqNum(), "SN 1 should now be committed");
+        Assertions.assertTrue(successStub.isSuccess(), "Should succeed now that Kafka is up");
+        Assertions.assertEquals(1L, successStub.getResponse().getCommittedSeqNum(), "SN 1 should now be committed");
     }
 }
