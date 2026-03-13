@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -16,7 +17,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 class ChronicleServiceImplTest {
-    private static final String dummyBootstrapServers = "localhost:9092";
     private static final int NUM_EXECUTOR_THREADS = 50;
     private ChronicleServiceImpl service;
     private ExecutorService executor;
@@ -24,7 +24,7 @@ class ChronicleServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        final Map<String, Long> cdbIdToSn = ChronicleSnBootstrapper.loadCdbIdSeqNums(dummyBootstrapServers);
+        final Map<String, Long> cdbIdToSn = new HashMap<>();
         logProducer = new ChronicleLogProducerStub();
         service = new ChronicleServiceImpl(cdbIdToSn, logProducer);
         executor = Executors.newFixedThreadPool(NUM_EXECUTOR_THREADS);
