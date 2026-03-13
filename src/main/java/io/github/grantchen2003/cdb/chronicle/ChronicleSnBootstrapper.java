@@ -18,7 +18,13 @@ import java.util.Properties;
 import java.util.Set;
 
 public class ChronicleSnBootstrapper {
+    private static final long DEFAULT_BOOTSTRAP_TIMEOUT_MS = 30_000;
+
     public static Map<String, Long> loadCdbIdSeqNums(String bootstrapServers) {
+        return loadCdbIdSeqNums(bootstrapServers, DEFAULT_BOOTSTRAP_TIMEOUT_MS);
+    }
+
+    static Map<String, Long> loadCdbIdSeqNums(String bootstrapServers, long timeoutMs) {
         final Map<String, Long> cdbIdToSn = new HashMap<>();
         final Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
@@ -58,7 +64,13 @@ public class ChronicleSnBootstrapper {
                     .filter(tp -> partitionToHighWatermark.get(tp) > 0)
                     .count();
 
+            final long deadline = System.currentTimeMillis() + timeoutMs;
             while (seenPartitions.size() < nonEmptyTopicPartitionCount) {
+                if (System.currentTimeMillis() > deadline) {
+                    throw new RuntimeException("Bootstrap timed out; only saw " + seenPartitions.size()
+                            + " of " + nonEmptyTopicPartitionCount + " partitions");
+                }
+
                 final ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
                 for (final ConsumerRecord<String, String> record : records) {
                     final String cdbId = record.topic();

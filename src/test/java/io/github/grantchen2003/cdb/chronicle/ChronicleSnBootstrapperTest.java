@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.when;
@@ -61,6 +63,30 @@ class ChronicleSnBootstrapperTest {
             assertEquals(11L, result.get(cdbId1), "Should recover 11 for db-1");
             assertEquals(5L, result.get(cdbId2), "Should recover 5 for db-2");
             assertEquals(1, mocked.constructed().size(), "KafkaConsumer should be instantiated once");
+        }
+    }
+
+    @Test
+    void testLoadCdbIdSeqNums_throwsWhenBootstrapTimesOut() {
+        final String cdbId1 = "cdb1";
+        final TopicPartition tp1 = new TopicPartition(cdbId1, 0);
+
+        try (final MockedConstruction<KafkaConsumer> ignored = mockConstruction(KafkaConsumer.class, (mock, context) -> {
+            final Map<String, List<PartitionInfo>> metadata = new HashMap<>();
+            metadata.put(cdbId1, List.of(new PartitionInfo(cdbId1, 0, null, null, null)));
+            when(mock.listTopics()).thenReturn(metadata);
+
+            when(mock.endOffsets(any())).thenReturn(Map.of(tp1, 5L));
+
+            // poll() never returns the partition's last record, simulating a stalled broker
+            when(mock.poll(any(Duration.class))).thenReturn(ConsumerRecords.empty());
+        })) {
+            final RuntimeException ex = assertThrows(RuntimeException.class, () ->
+                    ChronicleSnBootstrapper.loadCdbIdSeqNums("localhost:9092", 100)
+            );
+
+            assertTrue(ex.getMessage().contains("Bootstrap timed out"));
+            assertTrue(ex.getMessage().contains("0 of 1 partitions"));
         }
     }
 }
