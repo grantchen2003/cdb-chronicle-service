@@ -21,11 +21,6 @@ public class ChronicleSnBootstrapper {
     private static final long DEFAULT_BOOTSTRAP_TIMEOUT_MS = 30_000;
 
     public static Map<String, Long> loadCdbIdSeqNums(String bootstrapServers) {
-        return loadCdbIdSeqNums(bootstrapServers, DEFAULT_BOOTSTRAP_TIMEOUT_MS);
-    }
-
-    static Map<String, Long> loadCdbIdSeqNums(String bootstrapServers, long timeoutMs) {
-        final Map<String, Long> cdbIdToSn = new HashMap<>();
         final Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
@@ -33,53 +28,59 @@ public class ChronicleSnBootstrapper {
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
         try (final KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-            final Map<String, List<PartitionInfo>> topicToPartitions = consumer.listTopics();
+            return loadCdbIdSeqNums(new KafkaConsumerAdapterImpl(consumer), DEFAULT_BOOTSTRAP_TIMEOUT_MS);
+        }
+    }
 
-            final List<TopicPartition> topicPartitions = new ArrayList<>();
-            for (final String topic : topicToPartitions.keySet()) {
-                final boolean isKafkaInternalTopic = topic.startsWith("__");
-                if (isKafkaInternalTopic) {
-                    continue;
-                }
+    static Map<String, Long> loadCdbIdSeqNums(KafkaConsumerAdapter consumer, long timeoutMs) {
+        final Map<String, Long> cdbIdToSn = new HashMap<>();
 
-                for (final PartitionInfo p : topicToPartitions.get(topic)) {
-                    topicPartitions.add(new TopicPartition(topic, p.partition()));
-                }
+        final Map<String, List<PartitionInfo>> topicToPartitions = consumer.listTopics();
+
+        final List<TopicPartition> topicPartitions = new ArrayList<>();
+        for (final String topic : topicToPartitions.keySet()) {
+            final boolean isKafkaInternalTopic = topic.startsWith("__");
+            if (isKafkaInternalTopic) {
+                continue;
             }
 
-            consumer.assign(topicPartitions);
+            for (final PartitionInfo p : topicToPartitions.get(topic)) {
+                topicPartitions.add(new TopicPartition(topic, p.partition()));
+            }
+        }
 
-            final Map<TopicPartition, Long> partitionToHighWatermark = consumer.endOffsets(topicPartitions);
-            for (final TopicPartition tp : topicPartitions) {
-                final long highWatermark = partitionToHighWatermark.get(tp);
-                final boolean partitionIsNonEmpty = highWatermark > 0;
-                if (partitionIsNonEmpty) {
-                    final long lastRecordOffset = highWatermark - 1;
-                    consumer.seek(tp, lastRecordOffset);
-                }
+        consumer.assign(topicPartitions);
+
+        final Map<TopicPartition, Long> partitionToHighWatermark = consumer.endOffsets(topicPartitions);
+        for (final TopicPartition tp : topicPartitions) {
+            final long highWatermark = partitionToHighWatermark.get(tp);
+            final boolean partitionIsNonEmpty = highWatermark > 0;
+            if (partitionIsNonEmpty) {
+                final long lastRecordOffset = highWatermark - 1;
+                consumer.seek(tp, lastRecordOffset);
+            }
+        }
+
+        final Set<TopicPartition> seenPartitions = new HashSet<>();
+        final long nonEmptyTopicPartitionCount = topicPartitions.stream()
+                .filter(tp -> partitionToHighWatermark.get(tp) > 0)
+                .count();
+
+        final long deadline = System.currentTimeMillis() + timeoutMs;
+        while (seenPartitions.size() < nonEmptyTopicPartitionCount) {
+            if (System.currentTimeMillis() > deadline) {
+                throw new RuntimeException("Bootstrap timed out; only saw " + seenPartitions.size()
+                        + " of " + nonEmptyTopicPartitionCount + " partitions");
             }
 
-            final Set<TopicPartition> seenPartitions = new HashSet<>();
-            final long nonEmptyTopicPartitionCount = topicPartitions.stream()
-                    .filter(tp -> partitionToHighWatermark.get(tp) > 0)
-                    .count();
+            final ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+            for (final ConsumerRecord<String, String> record : records) {
+                final String cdbId = record.topic();
+                final long seqNum = Long.parseLong(record.key());
 
-            final long deadline = System.currentTimeMillis() + timeoutMs;
-            while (seenPartitions.size() < nonEmptyTopicPartitionCount) {
-                if (System.currentTimeMillis() > deadline) {
-                    throw new RuntimeException("Bootstrap timed out; only saw " + seenPartitions.size()
-                            + " of " + nonEmptyTopicPartitionCount + " partitions");
-                }
+                cdbIdToSn.merge(cdbId, seqNum, Math::max);
 
-                final ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
-                for (final ConsumerRecord<String, String> record : records) {
-                    final String cdbId = record.topic();
-                    final long seqNum = Long.parseLong(record.key());
-
-                    cdbIdToSn.merge(cdbId, seqNum, Math::max);
-
-                    seenPartitions.add(new TopicPartition(record.topic(), record.partition()));
-                }
+                seenPartitions.add(new TopicPartition(record.topic(), record.partition()));
             }
         }
 
